@@ -1,31 +1,35 @@
-import matplotlib.pyplot as plt
+import cv2
 import numpy as np
+import pickle
+import time
 
-# Simulate a stream of (x, y) data
-def generate_data_stream():
-    while True:
-        x = np.random.rand()
-        y = np.random.rand()
-        yield (x, y)
+# Create and initialize the color histogram
+hist = None
+roi = None
 
-data_stream = generate_data_stream()
+def load_histogram(filename='histogram.pkl'):
+    with open(filename, 'rb') as file:
+        hist = pickle.load(file)
+    print(f"Histogram loaded from {filename}")
+    return hist
 
-# Initialize the plot
-plt.ion()  # Turn on interactive mode
-fig, ax = plt.subplots()
-scatter = ax.scatter([], [], c='b')  # 'b' stands for blue color
-ax.set_xlim(0, 1)
-ax.set_ylim(0, 1)
+hist_queue = [load_histogram()]
 
-# Function to update the plot
-def update_plot(x, y):
-    scatter.set_offsets(np.array([[x, y]]))
-    plt.draw()  # Update plot
+def update_histogram(new_hist):
+    hist_queue.append(new_hist)
+    if len(hist_queue) > 10:  # Keep a maximum of 10 histograms in the queue
+        hist_queue.pop(0)
+    
+    weights = [1 / (i + 1) for i in range(len(hist_queue))]  # Assign weights to each histogram
+    total = sum(weights)
+    normalized_weights = [weight / total for weight in weights]
+    weighted_avg_hist = np.zeros_like(new_hist)
 
-plt.ioff()  # Turn off interactive mode
-plt.show()
+    for i, hist in enumerate(hist_queue):
+        weighted_avg_hist += hist * normalized_weights[i]
+        print("Added")
+    
+    return weighted_avg_hist
 
-# Main loop to read data from the stream and update the plot
-for _ in range(100):  # Limit to 100 points for this example
-    x, y = next(data_stream)
-    update_plot(x, y)
+for i in range(300):
+    update_histogram(load_histogram())

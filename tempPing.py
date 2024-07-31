@@ -1,9 +1,11 @@
+# Temporary file to give leon data points to track parabolic trajectory of a ping pong ball.
 import cv2
 import numpy as np
 import pickle
-import histMaker
-import time
-import histVisual
+
+# Define the lower and upper bounds for the color of a basketball in HSV
+lower_orange = np.array([1, 50, 50])
+upper_orange = np.array([30, 225, 255])
 
 # Open the video capture
 cap = cv2.VideoCapture(0)  # Use 0 for webcam or replace with video file path
@@ -16,7 +18,7 @@ def load_histogram(filename='histogram.pkl'):
     with open(filename, 'rb') as file:
         hist = pickle.load(file)
     print(f"Histogram loaded from {filename}")
-    return np.array(hist)
+    return hist
 
 def bounding_box(x,y,w,h,t):
     '''This function returns the new, expanded bounding box'''
@@ -27,33 +29,11 @@ def bounding_box(x,y,w,h,t):
 
     return int(nx), int(ny), int(max_x), int(max_y)
 
-hist_queue = []
-
-def update_histogram(new_hist):
-    hist_queue.append(new_hist)
-    if len(hist_queue) > 10:  # Keep a maximum of 10 histograms in the queue
-        hist_queue.pop(0)
-    
-    weights = [1 / (i + 1) for i in range(len(hist_queue))]  # Assign weights to each histogram
-    total = sum(weights)
-    normalized_weights = [weight / total for weight in weights]
-    weighted_avg_hist = np.zeros_like(new_hist)
-    for i, hist in enumerate(hist_queue):
-        weighted_avg_hist += hist * normalized_weights[i]
-    weighted_avg_hist *= 0.5
-    weighted_avg_hist += load_histogram('orange.pkl') * 0.5
-    return weighted_avg_hist
+coords = []
 
 def start():
-    hist_load_time = time.time()
-    hist = load_histogram('orange.pkl')
-    hist_queue.append(hist)
-    visual = histVisual.HistogramVisualizer()
+    hist = load_histogram()
     while True:
-        current_time = time.time()
-        if current_time - hist_load_time > 0.1:  # Load histogram every 1 second
-            hist_load_time = current_time
-        
         ret, frame = cap.read()
         if not ret:
             break
@@ -86,18 +66,21 @@ def start():
         if max_contour is not None:
             # Draw the largest contour
             cv2.drawContours(frame, [max_contour], 0, (0, 255, 0), 2)
+            # Compute the moments of the largest contour
+            M = cv2.moments(max_contour)
+
+            # Calculate the center of the contour
+            if M['m00'] != 0:
+                cx = int(M['m10'] / M['m00'])
+                cy = int(M['m01'] / M['m00'])
             x, y, w, h = cv2.boundingRect(max_contour)
-            x, y, max_x, max_y = bounding_box(x,y,w,h, 100)
+
+            x, y, max_x, max_y = bounding_box(x,y,w,h, 400)
 
             roi = frame[y:max_y, x:max_x]  # extract ROI from original thresholded image
             cv2.rectangle(frame,(x,y),(max_x, max_y),(0, 0, 255),3)
-            if roi.size > 0:  # Check if ROI is not empty
-                #Create new histogram
-                hist = update_histogram(histMaker.create_histogram(roi))
-                print("new histogram saved")
-                visual.animate(hist)
-            else:
-                print("ROI is empty")
+            coords.append([cx,cy])
+            # coords.append([x,y])
 
         # Display the original frame and the thresholded image
         cv2.imshow('Frame', frame)
@@ -105,11 +88,26 @@ def start():
         
         # Exit on pressing 'q'
         if cv2.waitKey(1) & 0xFF == ord('q'):
+            np.save('center_coords.npy', coords)
             break
 
     # Release the capture and close the windows
     cap.release()
     cv2.destroyAllWindows()
 
+def main():
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # cv2.imshow('Recording', frame)
+        start()
+        
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+
+
 if __name__ == "__main__":
-    start()
+    main()
